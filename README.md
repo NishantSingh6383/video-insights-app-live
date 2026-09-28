@@ -145,6 +145,8 @@ python smoke_test.py
 Runs an end-to-end check: uploads a synthetic video, summarizes it, fetches analytics, verifies path-traversal protection, and cleans up.
 
 ## Deployment
+app is live
+https://video-insights-app.onrender.com
 
 ### Render (free tier)
 
