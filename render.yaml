@@ -28,6 +28,12 @@ services:
         value: "640"
       - key: SUMMARY_MAX_EXTRACT_FRAMES
         value: "180"
+      # The dashboard calls analytics then compare back to back, so both frame
+      # buffers can be alive at once. 384px keeps the pair well inside 512MB.
+      - key: ANALYTICS_FRAME_WIDTH
+        value: "384"
+      - key: ANALYTICS_MAX_FRAMES
+        value: "240"
       # Optional: add your Anthropic key in the Render dashboard to enable AI Insights.
       - key: ANTHROPIC_API_KEY
         sync: false

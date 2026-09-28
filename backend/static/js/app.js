@@ -12,6 +12,28 @@ class AnalyticsError extends Error {
     }
 }
 
+// response.json() throws "Unexpected end of JSON input" on an empty body, which
+// hides the status that actually explains the failure. A worker killed for
+// running out of memory returns exactly that: a non-JSON, often empty, body.
+async function readJson(response) {
+    const text = await response.text();
+    if (!text) return null;
+    try {
+        return JSON.parse(text);
+    } catch {
+        return null;
+    }
+}
+
+function describeHttpFailure(status) {
+    if (status === 502 || status === 503 || status === 504) {
+        return `the server did not complete the request (HTTP ${status}). `
+             + 'This usually means it ran out of memory or restarted &mdash; '
+             + 'try a shorter or smaller video.';
+    }
+    return `the server returned HTTP ${status}.`;
+}
+
 function escapeHtml(value) {
     const div = document.createElement('div');
     div.textContent = String(value);
@@ -736,12 +758,15 @@ async function loadAnalytics() {
     try {
         // Fetch analytics data
         const response = await fetch(`${API_BASE}/videos/${state.videoInfo.file_id}/analytics/?sample_rate=10&max_frames=300`);
-        const data = await response.json();
+        const data = await readJson(response);
 
         // Without this check a failed response falls through and throws on
         // data.summary_stats, leaving every panel stuck on its loading placeholder.
-        if (!response.ok) {
-            throw new AnalyticsError(data.error || 'Analytics request failed', data.code);
+        if (!response.ok || !data) {
+            throw new AnalyticsError(
+                (data && data.error) || describeHttpFailure(response.status),
+                data && data.code
+            );
         }
 
         state.lastAnalytics = data;
@@ -806,10 +831,13 @@ async function loadAnalytics() {
 
         // Fetch technique comparison
         const compResponse = await fetch(`${API_BASE}/videos/${state.videoInfo.file_id}/compare/?sample_rate=10&max_frames=200`);
-        const compData = await compResponse.json();
+        const compData = await readJson(compResponse);
 
-        if (!compResponse.ok) {
-            throw new AnalyticsError(compData.error || 'Comparison request failed', compData.code);
+        if (!compResponse.ok || !compData) {
+            throw new AnalyticsError(
+                (compData && compData.error) || describeHttpFailure(compResponse.status),
+                compData && compData.code
+            );
         }
 
         renderComparison(compData);

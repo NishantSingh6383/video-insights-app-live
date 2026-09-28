@@ -113,6 +113,13 @@ MAX_UPLOAD_SIZE = int(os.environ.get('MAX_UPLOAD_MB', '500')) * 1024 * 1024
 SUMMARY_MAX_FRAME_WIDTH = int(os.environ.get('SUMMARY_MAX_FRAME_WIDTH', '0'))
 SUMMARY_MAX_EXTRACT_FRAMES = int(os.environ.get('SUMMARY_MAX_EXTRACT_FRAMES', '500'))
 
+# The analytics endpoints hold their sampled frames in one array. Peak memory is
+# roughly width * (width*9/16) * 3 * frames; at 480px and 300 frames that is
+# ~117MB per request, and the dashboard calls analytics and compare back to back.
+# Lower these on a small instance so the two together cannot exhaust it.
+ANALYTICS_FRAME_WIDTH = int(os.environ.get('ANALYTICS_FRAME_WIDTH', '480'))
+ANALYTICS_MAX_FRAMES = int(os.environ.get('ANALYTICS_MAX_FRAMES', '1000'))
+
 # Analytics and comparison results are pure functions of an immutable upload
 # (file_id is a UUID and the file never changes), so they cache safely. Without
 # this, every visit to the analytics tab re-decoded the video and re-ran optical

@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 ALLOWED_EXTENSIONS = ('.mp4', '.mpg', '.mpeg', '.avi', '.mov', '.mkv', '.webm')
 
 # Frames are downscaled to this width before analytics to bound memory usage.
-ANALYTICS_FRAME_WIDTH = 480
+ANALYTICS_FRAME_WIDTH = settings.ANALYTICS_FRAME_WIDTH
 
 
 def _cache_key(kind: str, file_id: str, *params) -> str:
@@ -77,22 +77,36 @@ def _extract_frames_for_analytics(filepath: Path, sample_rate: int, max_frames: 
     cap = cv2.VideoCapture(str(filepath))
     fps = cap.get(cv2.CAP_PROP_FPS)
 
-    frames = []
-    count = 0
-    while len(frames) < max_frames:
+    # Fill a single preallocated array rather than building a list and calling
+    # np.array() on it. That copy doubled peak memory - 300 frames at 480px is
+    # ~117MB, so the list plus its copy cost ~234MB on top of a ~140MB baseline,
+    # enough to get the worker OOM-killed on a 512MB instance. The kill returns
+    # an empty body, which the browser reports as a JSON parse error.
+    buffer = None
+    read_count = 0
+    kept = 0
+
+    while kept < max_frames:
         ret, frame = cap.read()
         if not ret:
             break
-        if count % sample_rate == 0:
+        if read_count % sample_rate == 0:
             h, w = frame.shape[:2]
             if w > ANALYTICS_FRAME_WIDTH:
                 scale = ANALYTICS_FRAME_WIDTH / w
-                frame = cv2.resize(frame, (ANALYTICS_FRAME_WIDTH, int(h * scale)))
-            frames.append(frame)
-        count += 1
+                frame = cv2.resize(frame, (ANALYTICS_FRAME_WIDTH, max(1, int(h * scale))))
+            if buffer is None:
+                buffer = np.empty((max_frames, *frame.shape), dtype=np.uint8)
+            buffer[kept] = frame
+            kept += 1
+        read_count += 1
     cap.release()
 
-    return frames, fps
+    if buffer is None:
+        return np.empty((0, 0, 0, 3), dtype=np.uint8), fps
+
+    # A slice is a view, so this does not copy.
+    return buffer[:kept], fps
 
 
 TECHNIQUES = {
@@ -434,8 +448,6 @@ def _analytics_payload(file_id, filepath, sample_rate, max_frames):
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    frames = np.array(frames)
-
     # Only every Nth frame was kept, so the effective frame rate of this
     # sequence is fps/sample_rate; passing raw fps made every reported
     # timestamp sample_rate times too small.
@@ -468,7 +480,7 @@ def _analytics_payload(file_id, filepath, sample_rate, max_frames):
 def _analytics_params(request):
     """Parse the shared sample_rate/max_frames query params."""
     sample_rate = max(1, int(request.GET.get('sample_rate', 10)))
-    max_frames = min(max(1, int(request.GET.get('max_frames', 500))), 1000)
+    max_frames = min(max(1, int(request.GET.get('max_frames', 500))), settings.ANALYTICS_MAX_FRAMES)
     return sample_rate, max_frames
 
 
@@ -551,7 +563,7 @@ def compare_techniques(request, file_id):
 
     try:
         sample_rate = max(1, int(request.GET.get('sample_rate', 10)))
-        max_frames = min(max(1, int(request.GET.get('max_frames', 300))), 500)
+        max_frames = min(max(1, int(request.GET.get('max_frames', 300))), settings.ANALYTICS_MAX_FRAMES)
     except ValueError:
         return Response(
             {'error': 'sample_rate and max_frames must be integers'},
@@ -571,8 +583,6 @@ def compare_techniques(request, file_id):
             {'error': 'Could not extract frames from video'},
             status=status.HTTP_400_BAD_REQUEST
         )
-
-    frames = np.array(frames)
 
     # Compare techniques
     engine = AnalyticsEngine()
@@ -613,7 +623,7 @@ def ai_insights(request, file_id):
 
     engine = AnalyticsEngine()
     # sample_rate=10 above, so the sequence runs at a tenth of the native rate.
-    analytics = engine.compute_full_analytics(np.array(frames), fps / 10 if fps else fps)
+    analytics = engine.compute_full_analytics(frames, fps / 10 if fps else fps)
 
     # Summarization context (optional, sent by the frontend after a summary run)
     summary_context = request.data if isinstance(request.data, dict) else {}
