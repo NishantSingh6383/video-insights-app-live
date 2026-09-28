@@ -1,4 +1,6 @@
 # Video Insights
+app is live
+https://video-insights-app.onrender.com
 
 AI-powered video summarization application using multiple computer-vision techniques: Motion Analysis, Color Histograms, Event Detection, Object Detection, and a Combined Approach — with optional Claude-powered AI insights.
 
@@ -147,6 +149,8 @@ python smoke_test.py
 Runs an end-to-end check: uploads a synthetic video, summarizes it, fetches analytics, verifies path-traversal protection, and cleans up.
 
 ## Deployment
+app is live
+https://video-insights-app.onrender.com
 
 ### Render (free tier)
 
