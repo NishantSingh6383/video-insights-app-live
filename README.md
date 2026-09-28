@@ -1,6 +1,6 @@
 # Video Insights
 app is live
-https://video-insights-app.onrender.com
+https://video-insights-app-exo3.onrender.com
 
 AI-powered video summarization application using multiple computer-vision techniques: Motion Analysis, Color Histograms, Event Detection, Object Detection, and a Combined Approach — with optional Claude-powered AI insights.
 
@@ -150,7 +150,7 @@ Runs an end-to-end check: uploads a synthetic video, summarizes it, fetches anal
 
 ## Deployment
 app is live
-https://video-insights-app.onrender.com
+https://video-insights-app-exo3.onrender.com
 
 ### Render (free tier)
 
