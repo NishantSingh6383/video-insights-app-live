@@ -1,4 +1,6 @@
 # Video Insights
+app is live
+https://video-insights-app.onrender.com
 
 AI-powered video summarization application using multiple computer-vision techniques: Motion Analysis, Color Histograms, Event Detection, Object Detection, and a Combined Approach — with optional Claude-powered AI insights.
 
