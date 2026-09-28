@@ -35,6 +35,7 @@ class VideoAnalytics:
     """Complete analytics for a video."""
     frame_analytics: list[FrameAnalytics] = field(default_factory=list)
     motion_heatmap: Optional[str] = None  # Base64 encoded image
+    scenes: list[dict] = field(default_factory=list)
     keyframe_thumbnails: list[dict] = field(default_factory=list)
     technique_scores: dict = field(default_factory=dict)
     summary_stats: dict = field(default_factory=dict)
@@ -60,7 +61,9 @@ class AnalyticsEngine:
         # Compute all feature scores. The flow pass also yields the heatmap
         # accumulator, so optical flow runs exactly once per request.
         motion_scores, heatmap_accumulator = self._flow_pass(frames)
-        color_scores = self._compute_color_diversity(frames)
+        histograms = self._color_histograms(frames)
+        color_scores = self._compute_color_diversity(histograms)
+        scenes = self._detect_scenes(histograms, fps)
         event_scores = self._compute_event_scores(motion_scores)
 
         # Normalize scores
@@ -92,10 +95,16 @@ class AnalyticsEngine:
             frames, keyframe_indices, motion_norm, color_norm
         )
 
+        analytics.scenes = scenes
+
         # Summary statistics
         analytics.summary_stats = {
             'total_frames': len(frames),
             'keyframes_count': len(keyframe_indices),
+            'scene_count': len(scenes),
+            'avg_scene_duration': round(
+                float(np.mean([s['duration'] for s in scenes])), 2
+            ) if scenes else 0.0,
             'avg_motion': float(np.mean(motion_scores)) if len(motion_scores) > 0 else 0,
             'max_motion': float(np.max(motion_scores)) if len(motion_scores) > 0 else 0,
             'motion_variance': float(np.var(motion_scores)) if len(motion_scores) > 0 else 0,
@@ -149,18 +158,53 @@ class AnalyticsEngine:
 
         return np.array(motion_scores), accumulator
 
-    def _compute_color_diversity(self, frames: np.ndarray) -> np.ndarray:
-        """Compute color diversity score for each frame."""
-        diversity_scores = []
+    def _color_histograms(self, frames: np.ndarray) -> list[np.ndarray]:
+        """Normalised 8x8x8 BGR histograms, shared by diversity and scene detection."""
         histograms = []
-
-        # First pass: compute all histograms
         for frame in frames:
             hist = cv2.calcHist([frame], [0, 1, 2], None, [8, 8, 8], [0, 256, 0, 256, 0, 256])
             hist = cv2.normalize(hist, hist).flatten()
             histograms.append(hist)
+        return histograms
 
-        # Second pass: compute diversity (distance from neighbors)
+    def _detect_scenes(self, histograms: list[np.ndarray], fps: float) -> list[dict]:
+        """Detect shot boundaries from jumps between consecutive colour histograms.
+
+        A hard cut shows up as a spike in the distance between adjacent frames'
+        histograms. The threshold adapts to the clip (mean + 3 sigma) so busy and
+        static footage both work, with a floor so that noise within a single
+        static shot doesn't register as a cut.
+        """
+        if len(histograms) < 3:
+            return []
+
+        distances = np.array([
+            float(np.linalg.norm(histograms[i] - histograms[i - 1]))
+            for i in range(1, len(histograms))
+        ])
+
+        threshold = max(float(distances.mean() + 3 * distances.std()), 0.25)
+        cuts = [int(i + 1) for i, d in enumerate(distances) if d >= threshold]
+
+        boundaries = [0] + cuts + [len(histograms)]
+        scenes = []
+        for start, end in zip(boundaries[:-1], boundaries[1:]):
+            if end <= start:
+                continue
+            scenes.append({
+                'start_index': start,
+                'end_index': end - 1,
+                'start_time': round(start / fps, 2) if fps > 0 else 0.0,
+                'end_time': round((end - 1) / fps, 2) if fps > 0 else 0.0,
+                'duration': round((end - start) / fps, 2) if fps > 0 else 0.0,
+            })
+        return scenes
+
+    def _compute_color_diversity(self, histograms: list[np.ndarray]) -> np.ndarray:
+        """Compute color diversity score for each frame."""
+        diversity_scores = []
+
+        # Compute diversity (distance from neighbors)
         for i, hist in enumerate(histograms):
             start = max(0, i - 5)
             end = min(len(histograms), i + 6)

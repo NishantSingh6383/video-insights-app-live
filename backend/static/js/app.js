@@ -42,7 +42,7 @@ function applyTheme(theme) {
     }
     // Re-render the chart with theme-appropriate colors if visible
     if (state.lastAnalytics && !document.getElementById('analytics-section').classList.contains('hidden')) {
-        renderScoresChart(state.lastAnalytics.technique_scores);
+        renderScoresChart(state.lastAnalytics.technique_scores, state.lastAnalytics.scenes);
     }
 }
 
@@ -746,6 +746,9 @@ async function loadAnalytics() {
 
         state.lastAnalytics = data;
 
+        const exportBtn = $('#export-csv-btn');
+        if (exportBtn) exportBtn.disabled = false;
+
         // Render motion heatmap
         if (data.motion_heatmap) {
             heatmapContainer.innerHTML = `<img src="data:image/jpeg;base64,${data.motion_heatmap}" alt="Motion Heatmap">`;
@@ -788,10 +791,18 @@ async function loadAnalytics() {
                 <p class="analytics-stat-value highlight">${stats.keyframes_count}</p>
                 <p class="analytics-stat-label">Key Frames</p>
             </div>
+            <div class="analytics-stat">
+                <p class="analytics-stat-value highlight">${stats.scene_count ?? 0}</p>
+                <p class="analytics-stat-label">Scenes Detected</p>
+            </div>
+            <div class="analytics-stat">
+                <p class="analytics-stat-value">${(stats.avg_scene_duration ?? 0).toFixed(1)}s</p>
+                <p class="analytics-stat-label">Avg Scene Length</p>
+            </div>
         `;
 
         // Render chart
-        renderScoresChart(data.technique_scores);
+        renderScoresChart(data.technique_scores, data.scenes);
 
         // Fetch technique comparison
         const compResponse = await fetch(`${API_BASE}/videos/${state.videoInfo.file_id}/compare/?sample_rate=10&max_frames=200`);
@@ -818,11 +829,20 @@ async function loadAnalytics() {
         heatmapContainer.innerHTML = `<div class="loading-placeholder">${message}</div>`;
         statsContainer.innerHTML = '';
         comparisonContainer.innerHTML = '';
-        chartContainer.innerHTML = '';
+
+        // Wipe the chart's pixels rather than its markup: renderScoresChart
+        // looks the canvas up by id, so removing it would break the next load.
+        const canvas = $('#scores-chart');
+        if (canvas) {
+            canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+        }
+
+        const exportBtn = $('#export-csv-btn');
+        if (exportBtn) exportBtn.disabled = true;
     }
 }
 
-function renderScoresChart(scores) {
+function renderScoresChart(scores, scenes) {
     const canvas = $('#scores-chart');
     const ctx = canvas.getContext('2d');
     const container = $('#chart-container');
@@ -856,6 +876,27 @@ function renderScoresChart(scores) {
         ctx.font = '10px Inter, sans-serif';
         ctx.textAlign = 'right';
         ctx.fillText((1 - i * 0.25).toFixed(1), padding.left - 8, y + 4);
+    }
+
+    // Scene cuts, drawn under the score lines so they read as background context
+    const frameCount = Math.max(
+        ...Object.values(scores || {}).map(v => (v && v.length) || 0), 0
+    );
+    if (scenes && scenes.length > 1 && frameCount > 1) {
+        ctx.save();
+        ctx.strokeStyle = themeColor('--chart-label', '#9ca3af');
+        ctx.globalAlpha = 0.45;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 4]);
+        // Skip the first scene: its boundary is the chart's own left edge.
+        scenes.slice(1).forEach(scene => {
+            const x = padding.left + (scene.start_index / (frameCount - 1)) * chartWidth;
+            ctx.beginPath();
+            ctx.moveTo(x, padding.top);
+            ctx.lineTo(x, padding.top + chartHeight);
+            ctx.stroke();
+        });
+        ctx.restore();
     }
 
     // Draw lines for each technique
@@ -1075,6 +1116,18 @@ document.addEventListener('DOMContentLoaded', () => {
     if (modal) {
         modal.addEventListener('click', (e) => {
             if (e.target === modal) closeFrameModal();
+        });
+    }
+
+    // Export the per-frame analytics the dashboard is currently showing.
+    // Hitting the URL directly lets the browser handle the download; the
+    // response is served from the same cache the dashboard already populated.
+    const exportBtn = $('#export-csv-btn');
+    if (exportBtn) {
+        exportBtn.addEventListener('click', () => {
+            if (!state.videoInfo) return;
+            window.location.href =
+                `${API_BASE}/videos/${state.videoInfo.file_id}/analytics/export/?sample_rate=10&max_frames=300`;
         });
     }
 

@@ -11,6 +11,8 @@ AI-powered video summarization application using multiple computer-vision techni
 - **Combined Approach**: Integrates motion, quality, and event scoring with configurable weights
 - **Output types**: Playable video summary (H.264), static storyboard grid, or both with downloadable frames
 - **Analytics dashboard**: Motion heatmap, per-frame importance chart, algorithm statistics, and technique comparison
+- **Scene detection**: Finds shot boundaries from colour-histogram jumps, using an adaptive (mean + 3σ) threshold, and marks them on the score chart
+- **CSV export**: Download per-frame motion/colour/event/combined scores with timestamps and scene numbers
 - **AI Insights (optional)**: Claude interprets your video's analytics and recommends the best technique and summary length
 - **Dark mode**: Follows your system preference, toggleable from the header, persisted across sessions
 
@@ -91,7 +93,8 @@ When configured, an "AI Insights" card appears on the Analytics page. Without a 
 | GET | `/api/techniques/{id}/` | Get technique details |
 | POST | `/api/videos/upload/` | Upload a video file |
 | POST | `/api/videos/{file_id}/summarize/` | Summarize uploaded video |
-| GET | `/api/videos/{file_id}/analytics/` | Per-frame analytics, heatmap & stats |
+| GET | `/api/videos/{file_id}/analytics/` | Per-frame analytics, scene cuts, heatmap & stats |
+| GET | `/api/videos/{file_id}/analytics/export/` | Download per-frame analytics as CSV |
 | GET | `/api/videos/{file_id}/compare/` | Compare all techniques on the same video |
 | POST | `/api/videos/{file_id}/insights/` | AI-written interpretation of the analytics (requires `ANTHROPIC_API_KEY`) |
 | DELETE | `/api/videos/{file_id}/` | Delete video and summaries |
@@ -128,6 +131,7 @@ When configured, an "AI Insights" card appears on the Analytics page. Without a 
 | `MAX_UPLOAD_MB` | `500` | Maximum upload size in MB |
 | `SUMMARY_MAX_FRAME_WIDTH` | `0` | Downscale frames to this width during extraction; `0` keeps native resolution |
 | `SUMMARY_MAX_EXTRACT_FRAMES` | `500` | Cap on frames held in memory per summarization |
+| `ANALYTICS_CACHE_TTL` | `3600` | Seconds to cache analytics/comparison results |
 
 > **Memory note:** summarization loads every sampled frame into RAM at once. At native
 > 1080p, ~500 frames is roughly 3GB. On a small host, set `SUMMARY_MAX_FRAME_WIDTH=640`

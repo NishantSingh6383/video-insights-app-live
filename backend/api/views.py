@@ -1,3 +1,5 @@
+import csv
+import io
 import logging
 import uuid
 
@@ -6,6 +8,7 @@ import numpy as np
 from pathlib import Path
 from django.conf import settings
 from django.core.cache import cache
+from django.http import HttpResponse
 from rest_framework import status
 from rest_framework.decorators import api_view, parser_classes
 from rest_framework.parsers import MultiPartParser, FormParser
@@ -409,46 +412,37 @@ def delete_video(request, file_id):
     return Response({'deleted': deleted})
 
 
-@api_view(['GET'])
-def get_analytics(request, file_id):
-    """Get comprehensive analytics for an uploaded video."""
-    filepath = _find_video(file_id)
-    if not filepath:
-        return Response(
-            {'error': 'Video not found', 'code': 'video_unavailable'},
-            status=status.HTTP_404_NOT_FOUND
-        )
+def _analytics_payload(file_id, filepath, sample_rate, max_frames):
+    """Build (or fetch from cache) the analytics payload for a video.
 
-    try:
-        sample_rate = max(1, int(request.GET.get('sample_rate', 10)))
-        max_frames = min(max(1, int(request.GET.get('max_frames', 500))), 1000)
-    except ValueError:
-        return Response(
-            {'error': 'sample_rate and max_frames must be integers'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+    Shared by the JSON endpoint and the CSV export so the export never triggers
+    a second, redundant optical-flow pass.
 
+    Returns (payload, error_response). Exactly one is not None.
+    """
     cache_key = _cache_key('analytics', file_id, sample_rate, max_frames)
     cached = cache.get(cache_key)
     if cached is not None:
         logger.info("Analytics cache hit for %s", file_id)
-        return Response(cached)
+        return cached, None
 
     frames, fps = _extract_frames_for_analytics(filepath, sample_rate, max_frames)
 
     if len(frames) == 0:
-        return Response(
+        return None, Response(
             {'error': 'Could not extract frames from video'},
             status=status.HTTP_400_BAD_REQUEST
         )
 
     frames = np.array(frames)
 
-    # Compute analytics
+    # Only every Nth frame was kept, so the effective frame rate of this
+    # sequence is fps/sample_rate; passing raw fps made every reported
+    # timestamp sample_rate times too small.
     engine = AnalyticsEngine()
-    analytics = engine.compute_full_analytics(frames, fps)
+    analytics = engine.compute_full_analytics(frames, fps / sample_rate if sample_rate else fps)
 
-    response_data = {
+    payload = {
         'frame_scores': [
             {
                 'index': fa.index,
@@ -462,12 +456,87 @@ def get_analytics(request, file_id):
             for fa in analytics.frame_analytics
         ],
         'motion_heatmap': analytics.motion_heatmap,
+        'scenes': analytics.scenes,
         'summary_stats': analytics.summary_stats,
         'technique_scores': analytics.technique_scores,
     }
 
-    cache.set(cache_key, response_data)
-    return Response(response_data)
+    cache.set(cache_key, payload)
+    return payload, None
+
+
+def _analytics_params(request):
+    """Parse the shared sample_rate/max_frames query params."""
+    sample_rate = max(1, int(request.GET.get('sample_rate', 10)))
+    max_frames = min(max(1, int(request.GET.get('max_frames', 500))), 1000)
+    return sample_rate, max_frames
+
+
+@api_view(['GET'])
+def get_analytics(request, file_id):
+    """Get comprehensive analytics for an uploaded video."""
+    filepath = _find_video(file_id)
+    if not filepath:
+        return Response(
+            {'error': 'Video not found', 'code': 'video_unavailable'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+
+    try:
+        sample_rate, max_frames = _analytics_params(request)
+    except ValueError:
+        return Response(
+            {'error': 'sample_rate and max_frames must be integers'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    payload, error = _analytics_payload(file_id, filepath, sample_rate, max_frames)
+    return error or Response(payload)
+
+
+@api_view(['GET'])
+def export_analytics(request, file_id):
+    """Download per-frame analytics as CSV, for use outside the dashboard."""
+    filepath = _find_video(file_id)
+    if not filepath:
+        return Response(
+            {'error': 'Video not found', 'code': 'video_unavailable'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+
+    try:
+        sample_rate, max_frames = _analytics_params(request)
+    except ValueError:
+        return Response(
+            {'error': 'sample_rate and max_frames must be integers'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    payload, error = _analytics_payload(file_id, filepath, sample_rate, max_frames)
+    if error:
+        return error
+
+    scene_of = {}
+    for number, scene in enumerate(payload['scenes'], start=1):
+        for idx in range(scene['start_index'], scene['end_index'] + 1):
+            scene_of[idx] = number
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow([
+        'frame_index', 'timestamp_seconds', 'scene',
+        'motion', 'color_diversity', 'event', 'combined', 'is_keyframe',
+    ])
+    for row in payload['frame_scores']:
+        writer.writerow([
+            row['index'], row['timestamp'], scene_of.get(row['index'], ''),
+            row['motion'], row['color'], row['event'], row['combined'],
+            int(row['is_keyframe']),
+        ])
+
+    response = HttpResponse(buffer.getvalue(), content_type='text/csv')
+    response['Content-Disposition'] = f'attachment; filename="{file_id}_analytics.csv"'
+    return response
 
 
 @api_view(['GET'])
@@ -543,7 +612,8 @@ def ai_insights(request, file_id):
         )
 
     engine = AnalyticsEngine()
-    analytics = engine.compute_full_analytics(np.array(frames), fps)
+    # sample_rate=10 above, so the sequence runs at a tenth of the native rate.
+    analytics = engine.compute_full_analytics(np.array(frames), fps / 10 if fps else fps)
 
     # Summarization context (optional, sent by the frontend after a summary run)
     summary_context = request.data if isinstance(request.data, dict) else {}

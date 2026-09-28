@@ -8,6 +8,7 @@ urlpatterns = [
     path('videos/upload/', views.upload_video, name='upload_video'),
     path('videos/<str:file_id>/summarize/', views.summarize_video, name='summarize_video'),
     path('videos/<str:file_id>/analytics/', views.get_analytics, name='get_analytics'),
+    path('videos/<str:file_id>/analytics/export/', views.export_analytics, name='export_analytics'),
     path('videos/<str:file_id>/compare/', views.compare_techniques, name='compare_techniques'),
     path('videos/<str:file_id>/insights/', views.ai_insights, name='ai_insights'),
     path('videos/<str:file_id>/', views.delete_video, name='delete_video'),
