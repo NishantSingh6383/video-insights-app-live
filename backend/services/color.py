@@ -2,7 +2,6 @@ import cv2
 import numpy as np
 from sklearn.cluster import KMeans
 from scipy.spatial.distance import cdist
-from skimage.metrics import structural_similarity as ssim
 from .base import BaseSummarizer, SummaryConfig
 from typing import Optional
 
@@ -13,7 +12,6 @@ class ColorSummarizer(BaseSummarizer):
 
     Features:
     - Multi-space color analysis (RGB, HSV, LAB)
-    - SSIM-based similarity for perceptual quality
     - Submodular optimization for diverse selection
     - Dominant color extraction using K-means
     - Texture analysis using Gabor filters
@@ -87,33 +85,6 @@ class ColorSummarizer(BaseSummarizer):
                 features.extend([np.mean(filtered), np.std(filtered)])
 
         return np.array(features)
-
-    def compute_ssim_matrix(self, frames: np.ndarray) -> np.ndarray:
-        """Compute SSIM similarity matrix between frames."""
-        self._report_progress(55, "Computing SSIM similarity matrix...")
-
-        n = len(frames)
-        # Resize frames for faster SSIM computation
-        resized = []
-        for frame in frames:
-            small = cv2.resize(frame, (160, 120))
-            gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
-            resized.append(gray)
-
-        similarity_matrix = np.zeros((n, n))
-
-        for i in range(n):
-            similarity_matrix[i, i] = 1.0
-            for j in range(i + 1, n):
-                score = ssim(resized[i], resized[j])
-                similarity_matrix[i, j] = score
-                similarity_matrix[j, i] = score
-
-            if i % 20 == 0:
-                progress = 55 + int(15 * i / n)
-                self._report_progress(progress, f"Computing similarity {i}/{n}...")
-
-        return similarity_matrix
 
     def submodular_selection(
         self,
