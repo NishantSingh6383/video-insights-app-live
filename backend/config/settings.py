@@ -113,6 +113,21 @@ MAX_UPLOAD_SIZE = int(os.environ.get('MAX_UPLOAD_MB', '500')) * 1024 * 1024
 SUMMARY_MAX_FRAME_WIDTH = int(os.environ.get('SUMMARY_MAX_FRAME_WIDTH', '0'))
 SUMMARY_MAX_EXTRACT_FRAMES = int(os.environ.get('SUMMARY_MAX_EXTRACT_FRAMES', '500'))
 
+# Analytics and comparison results are pure functions of an immutable upload
+# (file_id is a UUID and the file never changes), so they cache safely. Without
+# this, every visit to the analytics tab re-decoded the video and re-ran optical
+# flow. LocMem keeps it dependency-free; entries are small JSON blobs.
+ANALYTICS_CACHE_TTL = int(os.environ.get('ANALYTICS_CACHE_TTL', '3600'))
+
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'video-insights',
+        'TIMEOUT': ANALYTICS_CACHE_TTL,
+        'OPTIONS': {'MAX_ENTRIES': 64, 'CULL_FREQUENCY': 4},
+    }
+}
+
 CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', 'redis://localhost:6379/0')
 CELERY_RESULT_BACKEND = os.environ.get('CELERY_RESULT_BACKEND', 'redis://localhost:6379/0')
 

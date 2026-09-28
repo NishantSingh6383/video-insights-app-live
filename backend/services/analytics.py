@@ -4,6 +4,19 @@ from dataclasses import dataclass, field
 from typing import Optional
 import base64
 
+# Dense optical flow dominates the cost of every analytics call and its runtime
+# scales with pixel count. Motion scores are normalised and only used to rank
+# frames relative to each other, so a 240px working width is ample; the heatmap
+# is upscaled for display afterwards.
+FLOW_WIDTH = 240
+
+# Farneback parameters tuned for speed over precision, for the same reason:
+# fewer pyramid levels and iterations barely move the normalised scores.
+_FARNEBACK = {
+    'pyr_scale': 0.5, 'levels': 2, 'winsize': 13,
+    'iterations': 2, 'poly_n': 5, 'poly_sigma': 1.1, 'flags': 0,
+}
+
 
 @dataclass
 class FrameAnalytics:
@@ -44,8 +57,9 @@ class AnalyticsEngine:
         keyframe_indices = keyframe_indices or []
         analytics = VideoAnalytics()
 
-        # Compute all feature scores
-        motion_scores = self._compute_motion_scores(frames)
+        # Compute all feature scores. The flow pass also yields the heatmap
+        # accumulator, so optical flow runs exactly once per request.
+        motion_scores, heatmap_accumulator = self._flow_pass(frames)
         color_scores = self._compute_color_diversity(frames)
         event_scores = self._compute_event_scores(motion_scores)
 
@@ -71,7 +85,7 @@ class AnalyticsEngine:
             analytics.frame_analytics.append(fa)
 
         # Generate motion heatmap
-        analytics.motion_heatmap = self._generate_motion_heatmap(frames)
+        analytics.motion_heatmap = self._render_motion_heatmap(frames, heatmap_accumulator)
 
         # Generate keyframe thumbnails with annotations
         analytics.keyframe_thumbnails = self._generate_keyframe_thumbnails(
@@ -100,25 +114,40 @@ class AnalyticsEngine:
 
         return analytics
 
-    def _compute_motion_scores(self, frames: np.ndarray) -> np.ndarray:
-        """Compute motion magnitude between consecutive frames."""
-        if len(frames) < 2:
-            return np.zeros(len(frames))
+    def _flow_pass(self, frames: np.ndarray) -> tuple[np.ndarray, Optional[np.ndarray]]:
+        """Run dense optical flow once, deriving both outputs that need it.
 
+        Per-frame motion scores and the aggregated motion heatmap are both just
+        reductions over the same flow fields. Computing them in separate passes
+        meant every analytics request paid for optical flow twice.
+
+        Returns (motion_scores, heatmap_accumulator). The accumulator is at flow
+        resolution and is None when there are too few frames to compare.
+        """
+        n = len(frames)
+        if n < 2:
+            return np.zeros(n), None
+
+        def to_flow_gray(frame):
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            h, w = gray.shape
+            if w > FLOW_WIDTH:
+                gray = cv2.resize(gray, (FLOW_WIDTH, max(1, round(h * FLOW_WIDTH / w))))
+            return gray
+
+        prev_gray = to_flow_gray(frames[0])
+        accumulator = np.zeros(prev_gray.shape, dtype=np.float32)
         motion_scores = [0.0]  # First frame has no motion
-        prev_gray = cv2.cvtColor(frames[0], cv2.COLOR_BGR2GRAY)
 
         for frame in frames[1:]:
-            curr_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            flow = cv2.calcOpticalFlowFarneback(
-                prev_gray, curr_gray, None,
-                0.5, 3, 15, 3, 5, 1.2, 0
-            )
-            magnitude, _ = cv2.cartToPolar(flow[..., 0], flow[..., 1])
-            motion_scores.append(np.mean(magnitude))
+            curr_gray = to_flow_gray(frame)
+            flow = cv2.calcOpticalFlowFarneback(prev_gray, curr_gray, None, **_FARNEBACK)
+            magnitude = cv2.magnitude(flow[..., 0], flow[..., 1])
+            accumulator += magnitude
+            motion_scores.append(float(magnitude.mean()))
             prev_gray = curr_gray
 
-        return np.array(motion_scores)
+        return np.array(motion_scores), accumulator
 
     def _compute_color_diversity(self, frames: np.ndarray) -> np.ndarray:
         """Compute color diversity score for each frame."""
@@ -180,29 +209,19 @@ class AnalyticsEngine:
             return np.zeros_like(arr)
         return (arr - min_val) / (max_val - min_val)
 
-    def _generate_motion_heatmap(self, frames: np.ndarray) -> str:
-        """Generate an aggregated motion heatmap as base64 image."""
-        if len(frames) < 2:
+    def _render_motion_heatmap(self, frames: np.ndarray, accumulator: Optional[np.ndarray]) -> str:
+        """Render the accumulated flow magnitudes from _flow_pass as a base64 JPEG."""
+        if accumulator is None or len(frames) < 2:
             return ""
 
         h, w = frames[0].shape[:2]
-        heatmap = np.zeros((h, w), dtype=np.float32)
-
-        prev_gray = cv2.cvtColor(frames[0], cv2.COLOR_BGR2GRAY)
-
-        for frame in frames[1:]:
-            curr_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            flow = cv2.calcOpticalFlowFarneback(
-                prev_gray, curr_gray, None,
-                0.5, 3, 15, 3, 5, 1.2, 0
-            )
-            magnitude, _ = cv2.cartToPolar(flow[..., 0], flow[..., 1])
-            heatmap += magnitude
-            prev_gray = curr_gray
 
         # Normalize and apply colormap
-        heatmap = cv2.normalize(heatmap, None, 0, 255, cv2.NORM_MINMAX)
+        heatmap = cv2.normalize(accumulator, None, 0, 255, cv2.NORM_MINMAX)
         heatmap = heatmap.astype(np.uint8)
+        # Accumulated at flow resolution; bring it back to frame size to blend.
+        if heatmap.shape[:2] != (h, w):
+            heatmap = cv2.resize(heatmap, (w, h), interpolation=cv2.INTER_LINEAR)
         heatmap_colored = cv2.applyColorMap(heatmap, cv2.COLORMAP_JET)
 
         # Blend with first frame for context

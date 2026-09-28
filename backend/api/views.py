@@ -5,6 +5,7 @@ import cv2
 import numpy as np
 from pathlib import Path
 from django.conf import settings
+from django.core.cache import cache
 from rest_framework import status
 from rest_framework.decorators import api_view, parser_classes
 from rest_framework.parsers import MultiPartParser, FormParser
@@ -28,6 +29,16 @@ ALLOWED_EXTENSIONS = ('.mp4', '.mpg', '.mpeg', '.avi', '.mov', '.mkv', '.webm')
 
 # Frames are downscaled to this width before analytics to bound memory usage.
 ANALYTICS_FRAME_WIDTH = 480
+
+
+def _cache_key(kind: str, file_id: str, *params) -> str:
+    """Cache key for a derivative of an upload.
+
+    No explicit invalidation is needed: file_id is a server-generated UUID that
+    is never reused, and deleting a video removes the file, so _find_video 404s
+    before any cached entry could be served. Leftovers age out via TTL.
+    """
+    return 'vi:{}:{}:{}'.format(kind, file_id, ':'.join(str(p) for p in params))
 
 
 def _validate_file_id(file_id: str) -> bool:
@@ -249,7 +260,7 @@ def summarize_video(request, file_id):
     filepath = _find_video(file_id)
     if not filepath:
         return Response(
-            {'error': 'Video not found'},
+            {'error': 'Video not found', 'code': 'video_unavailable'},
             status=status.HTTP_404_NOT_FOUND
         )
 
@@ -372,7 +383,7 @@ def delete_video(request, file_id):
     """Delete an uploaded video and its summaries."""
     if not _validate_file_id(file_id):
         return Response(
-            {'error': 'Video not found'},
+            {'error': 'Video not found', 'code': 'video_unavailable'},
             status=status.HTTP_404_NOT_FOUND
         )
 
@@ -390,7 +401,7 @@ def delete_video(request, file_id):
 
     if not deleted:
         return Response(
-            {'error': 'Video not found'},
+            {'error': 'Video not found', 'code': 'video_unavailable'},
             status=status.HTTP_404_NOT_FOUND
         )
 
@@ -404,7 +415,7 @@ def get_analytics(request, file_id):
     filepath = _find_video(file_id)
     if not filepath:
         return Response(
-            {'error': 'Video not found'},
+            {'error': 'Video not found', 'code': 'video_unavailable'},
             status=status.HTTP_404_NOT_FOUND
         )
 
@@ -416,6 +427,12 @@ def get_analytics(request, file_id):
             {'error': 'sample_rate and max_frames must be integers'},
             status=status.HTTP_400_BAD_REQUEST
         )
+
+    cache_key = _cache_key('analytics', file_id, sample_rate, max_frames)
+    cached = cache.get(cache_key)
+    if cached is not None:
+        logger.info("Analytics cache hit for %s", file_id)
+        return Response(cached)
 
     frames, fps = _extract_frames_for_analytics(filepath, sample_rate, max_frames)
 
@@ -449,6 +466,7 @@ def get_analytics(request, file_id):
         'technique_scores': analytics.technique_scores,
     }
 
+    cache.set(cache_key, response_data)
     return Response(response_data)
 
 
@@ -458,7 +476,7 @@ def compare_techniques(request, file_id):
     filepath = _find_video(file_id)
     if not filepath:
         return Response(
-            {'error': 'Video not found'},
+            {'error': 'Video not found', 'code': 'video_unavailable'},
             status=status.HTTP_404_NOT_FOUND
         )
 
@@ -470,6 +488,12 @@ def compare_techniques(request, file_id):
             {'error': 'sample_rate and max_frames must be integers'},
             status=status.HTTP_400_BAD_REQUEST
         )
+
+    cache_key = _cache_key('compare', file_id, sample_rate, max_frames)
+    cached = cache.get(cache_key)
+    if cached is not None:
+        logger.info("Compare cache hit for %s", file_id)
+        return Response(cached)
 
     frames, _ = _extract_frames_for_analytics(filepath, sample_rate, max_frames)
 
@@ -485,10 +509,13 @@ def compare_techniques(request, file_id):
     engine = AnalyticsEngine()
     comparison = engine.compare_techniques(frames)
 
-    return Response({
+    response_data = {
         'total_frames': len(frames),
         'techniques': comparison,
-    })
+    }
+
+    cache.set(cache_key, response_data)
+    return Response(response_data)
 
 
 @api_view(['POST'])
@@ -503,7 +530,7 @@ def ai_insights(request, file_id):
     filepath = _find_video(file_id)
     if not filepath:
         return Response(
-            {'error': 'Video not found'},
+            {'error': 'Video not found', 'code': 'video_unavailable'},
             status=status.HTTP_404_NOT_FOUND
         )
 

@@ -2,6 +2,22 @@
 
 const API_BASE = '/api';
 
+// Carries the API's machine-readable `code` so callers can tell an expired
+// upload apart from a genuine failure.
+class AnalyticsError extends Error {
+    constructor(message, code) {
+        super(message);
+        this.name = 'AnalyticsError';
+        this.code = code;
+    }
+}
+
+function escapeHtml(value) {
+    const div = document.createElement('div');
+    div.textContent = String(value);
+    return div.innerHTML;
+}
+
 // Theme Management
 function initTheme() {
     const saved = localStorage.getItem('theme');
@@ -721,6 +737,13 @@ async function loadAnalytics() {
         // Fetch analytics data
         const response = await fetch(`${API_BASE}/videos/${state.videoInfo.file_id}/analytics/?sample_rate=10&max_frames=300`);
         const data = await response.json();
+
+        // Without this check a failed response falls through and throws on
+        // data.summary_stats, leaving every panel stuck on its loading placeholder.
+        if (!response.ok) {
+            throw new AnalyticsError(data.error || 'Analytics request failed', data.code);
+        }
+
         state.lastAnalytics = data;
 
         // Render motion heatmap
@@ -774,11 +797,28 @@ async function loadAnalytics() {
         const compResponse = await fetch(`${API_BASE}/videos/${state.videoInfo.file_id}/compare/?sample_rate=10&max_frames=200`);
         const compData = await compResponse.json();
 
+        if (!compResponse.ok) {
+            throw new AnalyticsError(compData.error || 'Comparison request failed', compData.code);
+        }
+
         renderComparison(compData);
 
     } catch (error) {
         console.error('Failed to load analytics:', error);
-        heatmapContainer.innerHTML = '<div class="loading-placeholder">Failed to load analytics</div>';
+
+        // Uploads live on ephemeral storage, so a video can vanish between the
+        // summary and the user opening this tab. Say so instead of failing mutely.
+        const expired = error instanceof AnalyticsError && error.code === 'video_unavailable';
+        const message = expired
+            ? 'This video is no longer on the server. Uploads are temporary and are cleared when the server restarts &mdash; please upload it again.'
+            : `Failed to load analytics: ${escapeHtml(error.message || 'unknown error')}`;
+
+        // Clear every panel; otherwise the ones we never reached stay on
+        // "Computing statistics..." forever.
+        heatmapContainer.innerHTML = `<div class="loading-placeholder">${message}</div>`;
+        statsContainer.innerHTML = '';
+        comparisonContainer.innerHTML = '';
+        chartContainer.innerHTML = '';
     }
 }
 
