@@ -1,0 +1,33 @@
+services:
+  - type: web
+    name: video-insights-app
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: "pip install --upgrade pip && pip install -r requirements.txt && python manage.py collectstatic --no-input"
+    # Summarization runs synchronously inside the request, so the worker timeout
+    # has to cover a full encode. One worker with threads keeps RSS inside the
+    # 512MB free tier; the app is CPU-bound, so more workers would only OOM.
+    startCommand: "gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 600 --access-logfile - --error-logfile -"
+    healthCheckPath: /api/health/
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: DJANGO_DEBUG
+        value: "False"
+      # Render's edge already redirects HTTP->HTTPS. Leaving Django's own
+      # redirect on would 301 the internal health check and fail the deploy.
+      - key: DJANGO_SECURE_SSL_REDIRECT
+        value: "False"
+      # Free tier is 512MB RAM / 0.1 CPU - keep uploads and frame buffers small.
+      - key: MAX_UPLOAD_MB
+        value: "40"
+      - key: SUMMARY_MAX_FRAME_WIDTH
+        value: "640"
+      - key: SUMMARY_MAX_EXTRACT_FRAMES
+        value: "180"
+      # Optional: add your Anthropic key in the Render dashboard to enable AI Insights.
+      - key: ANTHROPIC_API_KEY
+        sync: false

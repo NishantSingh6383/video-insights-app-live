@@ -1,0 +1,583 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Insights - AI Video Summarization</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{% static 'css/styles.css' %}">
+    <script>
+        // Apply the saved theme before first paint to avoid a flash of the wrong theme
+        (function () {
+            var saved = localStorage.getItem('theme');
+            var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+            document.documentElement.setAttribute('data-theme', saved || (prefersDark ? 'dark' : 'light'));
+        })();
+    </script>
+</head>
+<body>
+    <header class="header">
+        <div class="container header-content">
+            <div class="logo">
+                <div class="logo-icon">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polygon points="23 7 16 12 23 17 23 7"></polygon>
+                        <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
+                    </svg>
+                </div>
+                <div>
+                    <h1>Video Insights</h1>
+                    <p>AI-Powered Video Summarization</p>
+                </div>
+            </div>
+            <button id="theme-toggle" class="btn-icon theme-toggle" title="Toggle dark mode" aria-label="Toggle dark mode">
+                <svg id="theme-icon-sun" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="5"></circle>
+                    <line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line>
+                    <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+                    <line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line>
+                    <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+                </svg>
+                <svg id="theme-icon-moon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="hidden">
+                    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+                </svg>
+            </button>
+        </div>
+    </header>
+
+    <main class="container main-content">
+        <!-- Progress Steps -->
+        <div class="progress-steps">
+            <div class="step active" data-step="1">
+                <div class="step-number">1</div>
+                <span>Upload</span>
+            </div>
+            <div class="step-line"></div>
+            <div class="step" data-step="2">
+                <div class="step-number">2</div>
+                <span>Configure</span>
+            </div>
+            <div class="step-line"></div>
+            <div class="step" data-step="3">
+                <div class="step-number">3</div>
+                <span>Process</span>
+            </div>
+            <div class="step-line"></div>
+            <div class="step" data-step="4">
+                <div class="step-number">4</div>
+                <span>Done</span>
+            </div>
+        </div>
+
+        <!-- Step 1: Upload -->
+        <section id="upload-section" class="section">
+            <div class="section-header">
+                <h2>Upload Your Video</h2>
+                <p>Select a video to analyze and summarize using AI-powered techniques</p>
+            </div>
+
+            <div class="card upload-card">
+                <div id="dropzone" class="dropzone">
+                    <div class="dropzone-icon">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                            <polyline points="17 8 12 3 7 8"></polyline>
+                            <line x1="12" y1="3" x2="12" y2="15"></line>
+                        </svg>
+                    </div>
+                    <p class="dropzone-text">Drag & drop your video here</p>
+                    <p class="dropzone-subtext">or click to browse</p>
+                    <p class="dropzone-formats">MP4, MPG, AVI, MOV, MKV, WebM - Max 500MB</p>
+                    <input type="file" id="file-input" accept=".mp4,.mpg,.mpeg,.avi,.mov,.mkv,.webm" hidden>
+                </div>
+
+                <!-- Preview (hidden initially) -->
+                <div id="preview-section" class="preview-section hidden">
+                    <div class="preview-header">
+                        <h3>Selected Video</h3>
+                        <button id="clear-preview" class="btn-icon" title="Remove">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <line x1="18" y1="6" x2="6" y2="18"></line>
+                                <line x1="6" y1="6" x2="18" y2="18"></line>
+                            </svg>
+                        </button>
+                    </div>
+                    <video id="video-preview" controls class="video-preview"></video>
+                    <div class="file-info">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polygon points="23 7 16 12 23 17 23 7"></polygon>
+                            <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
+                        </svg>
+                        <div>
+                            <p id="file-name" class="file-name"></p>
+                            <p id="file-size" class="file-size"></p>
+                        </div>
+                    </div>
+
+                    <!-- Upload Progress -->
+                    <div id="upload-progress" class="progress-container hidden">
+                        <div class="progress-header">
+                            <span>Uploading...</span>
+                            <span id="progress-percent">0%</span>
+                        </div>
+                        <div class="progress-bar">
+                            <div id="progress-fill" class="progress-fill"></div>
+                        </div>
+                    </div>
+
+                    <div id="upload-error" class="error-message hidden"></div>
+
+                    <button id="upload-btn" class="btn btn-primary btn-full">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                            <polyline points="17 8 12 3 7 8"></polyline>
+                            <line x1="12" y1="3" x2="12" y2="15"></line>
+                        </svg>
+                        Upload Video
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Step 2: Configure -->
+        <section id="configure-section" class="section hidden">
+            <div class="section-header">
+                <h2>Configure Summarization</h2>
+                <p>Choose a technique and adjust parameters for your video summary</p>
+            </div>
+
+            <!-- Video Info Card -->
+            <div class="card" id="video-info-card">
+                <h3>Video Information</h3>
+                <div class="info-grid">
+                    <div class="info-item">
+                        <div class="info-icon blue">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <polygon points="23 7 16 12 23 17 23 7"></polygon>
+                                <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
+                            </svg>
+                        </div>
+                        <div>
+                            <p class="info-label">File Size</p>
+                            <p id="info-size" class="info-value">-</p>
+                        </div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-icon green">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="12" cy="12" r="10"></circle>
+                                <polyline points="12 6 12 12 16 14"></polyline>
+                            </svg>
+                        </div>
+                        <div>
+                            <p class="info-label">Duration</p>
+                            <p id="info-duration" class="info-value">-</p>
+                        </div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-icon purple">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="15 3 21 3 21 9"></polyline>
+                                <polyline points="9 21 3 21 3 15"></polyline>
+                                <line x1="21" y1="3" x2="14" y2="10"></line>
+                                <line x1="3" y1="21" x2="10" y2="14"></line>
+                            </svg>
+                        </div>
+                        <div>
+                            <p class="info-label">Resolution</p>
+                            <p id="info-resolution" class="info-value">-</p>
+                        </div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-icon orange">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+                                <polyline points="2 17 12 22 22 17"></polyline>
+                                <polyline points="2 12 12 17 22 12"></polyline>
+                            </svg>
+                        </div>
+                        <div>
+                            <p class="info-label">Total Frames</p>
+                            <p id="info-frames" class="info-value">-</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="info-footer">
+                    <span id="info-filename">-</span> &bull; <span id="info-fps">-</span> FPS
+                </div>
+            </div>
+
+            <!-- Technique Selection -->
+            <div class="card">
+                <h3>Select Technique</h3>
+                <div class="technique-grid" id="technique-grid">
+                    <!-- Techniques will be loaded here -->
+                </div>
+            </div>
+
+            <!-- Summary Length Selection -->
+            <div class="card">
+                <h3>Summary Length</h3>
+                <p class="card-description">How much of the original video to keep</p>
+                <div class="summary-length-grid">
+                    <button class="summary-length-card" data-length="short">
+                        <span class="summary-length-percent">10%</span>
+                        <span class="summary-length-name">Short</span>
+                        <span class="summary-length-desc">Quick highlights</span>
+                    </button>
+                    <button class="summary-length-card selected" data-length="medium">
+                        <span class="summary-length-percent">20%</span>
+                        <span class="summary-length-name">Medium</span>
+                        <span class="summary-length-desc">Balanced summary</span>
+                    </button>
+                    <button class="summary-length-card" data-length="long">
+                        <span class="summary-length-percent">35%</span>
+                        <span class="summary-length-name">Long</span>
+                        <span class="summary-length-desc">Detailed overview</span>
+                    </button>
+                    <button class="summary-length-card" data-length="custom">
+                        <span class="summary-length-percent">
+                            <input type="number" id="custom-percent" value="25" min="5" max="80" class="custom-percent-input">%
+                        </span>
+                        <span class="summary-length-name">Custom</span>
+                        <span class="summary-length-desc">Set your own</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Output Type Selection -->
+            <div class="card">
+                <h3>Output Type</h3>
+                <p class="card-description">Choose how you want to view your summary</p>
+                <div class="output-type-grid">
+                    <button class="output-type-card selected" data-output="dynamic">
+                        <div class="output-type-icon">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                            </svg>
+                        </div>
+                        <div class="output-type-content">
+                            <span class="output-type-name">Dynamic Video</span>
+                            <span class="output-type-desc">Playable video summary</span>
+                        </div>
+                    </button>
+                    <button class="output-type-card" data-output="static">
+                        <div class="output-type-icon">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                                <line x1="3" y1="9" x2="21" y2="9"></line>
+                                <line x1="9" y1="21" x2="9" y2="9"></line>
+                            </svg>
+                        </div>
+                        <div class="output-type-content">
+                            <span class="output-type-name">Static Storyboard</span>
+                            <span class="output-type-desc">Image grid with timestamps</span>
+                        </div>
+                    </button>
+                    <button class="output-type-card" data-output="both">
+                        <div class="output-type-icon">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+                                <polyline points="2 17 12 22 22 17"></polyline>
+                                <polyline points="2 12 12 17 22 12"></polyline>
+                            </svg>
+                        </div>
+                        <div class="output-type-content">
+                            <span class="output-type-name">Both</span>
+                            <span class="output-type-desc">Video + downloadable frames</span>
+                        </div>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Advanced Options -->
+            <div class="card">
+                <button class="advanced-toggle" id="advanced-toggle">
+                    <svg id="advanced-arrow" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="6 9 12 15 18 9"></polyline>
+                    </svg>
+                    Advanced Options
+                </button>
+                <div id="advanced-options" class="advanced-options hidden">
+                    <div class="options-grid">
+                        <div class="form-group">
+                            <label for="frame-sample-rate">Frame Sample Rate</label>
+                            <input type="number" id="frame-sample-rate" value="2" min="1" max="100" class="input">
+                            <p class="form-hint">Extract every Nth frame (lower = more frames)</p>
+                        </div>
+                        <div class="form-group">
+                            <label for="max-frames">Max Frames</label>
+                            <input type="number" id="max-frames" value="3000" min="10" max="5000" class="input">
+                            <p class="form-hint">Maximum frames to process</p>
+                        </div>
+                        <div class="form-group">
+                            <label for="output-fps">Output FPS</label>
+                            <input type="number" id="output-fps" value="24" min="1" max="60" class="input">
+                            <p class="form-hint">Summary video framerate</p>
+                        </div>
+                    </div>
+
+                    <!-- Technique-specific parameters -->
+                    <div id="technique-params" class="technique-params hidden">
+                        <h4 id="technique-params-title">Parameters</h4>
+                        <div id="technique-params-grid" class="options-grid">
+                            <!-- Dynamic params here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="config-error" class="error-message hidden"></div>
+
+            <div class="button-row">
+                <button id="back-btn" class="btn btn-secondary">Back</button>
+                <button id="summarize-btn" class="btn btn-primary btn-flex">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                    </svg>
+                    Generate Summary
+                </button>
+            </div>
+        </section>
+
+        <!-- Step 3: Processing -->
+        <section id="processing-section" class="section hidden">
+            <div class="card processing-card">
+                <div class="processing-header">
+                    <div class="spinner-container">
+                        <div class="spinner"></div>
+                    </div>
+                    <div>
+                        <h3>Processing Video</h3>
+                        <p id="processing-technique">Using combined technique</p>
+                    </div>
+                </div>
+
+                <div class="processing-steps" id="processing-steps">
+                    <!-- Steps will be added dynamically -->
+                </div>
+
+                <div class="processing-note">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                    </svg>
+                    <span>This may take a few moments depending on video length...</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Step 4: Results -->
+        <section id="results-section" class="section hidden">
+            <div class="card">
+                <div class="result-header">
+                    <div class="success-icon">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                            <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                        </svg>
+                    </div>
+                    <div>
+                        <h3>Summary Complete!</h3>
+                        <p id="result-time">Processed in 0 seconds</p>
+                    </div>
+                </div>
+
+                <!-- Dynamic Video Result -->
+                <div id="result-video-container" class="result-video">
+                    <video id="result-video" controls class="video-preview"></video>
+                </div>
+
+                <!-- Static Storyboard Result -->
+                <div id="result-storyboard-container" class="result-storyboard hidden">
+                    <div class="storyboard-header">
+                        <h4>Key Frame Storyboard</h4>
+                        <button id="download-all-frames" class="btn btn-secondary btn-small">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                <polyline points="7 10 12 15 17 10"></polyline>
+                                <line x1="12" y1="15" x2="12" y2="3"></line>
+                            </svg>
+                            Download Storyboard
+                        </button>
+                    </div>
+                    <div id="storyboard-grid" class="storyboard-grid">
+                        <!-- Frames will be added here -->
+                    </div>
+                </div>
+
+                <!-- Frame Preview Modal -->
+                <div id="frame-modal" class="modal hidden">
+                    <div class="modal-content">
+                        <button id="close-modal" class="modal-close">&times;</button>
+                        <img id="modal-image" src="" alt="Frame preview">
+                        <div class="modal-info">
+                            <span id="modal-frame-info">Frame 0</span>
+                            <span id="modal-timestamp">0:00</span>
+                            <a id="modal-download" class="btn btn-primary btn-small" download>Download</a>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <p id="stat-processed" class="stat-value">0</p>
+                        <p class="stat-label">Frames Analyzed</p>
+                    </div>
+                    <div class="stat-item">
+                        <p id="stat-selected" class="stat-value blue">0</p>
+                        <p class="stat-label">Key Frames</p>
+                    </div>
+                    <div class="stat-item">
+                        <p id="stat-compression" class="stat-value green">0%</p>
+                        <p class="stat-label">Compression</p>
+                    </div>
+                </div>
+
+                <div class="technique-badge">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="18" y1="20" x2="18" y2="10"></line>
+                        <line x1="12" y1="20" x2="12" y2="4"></line>
+                        <line x1="6" y1="20" x2="6" y2="14"></line>
+                    </svg>
+                    <span>Technique used: <strong id="result-technique">-</strong></span>
+                </div>
+
+                <div class="button-row">
+                    <a id="download-btn" href="#" download class="btn btn-primary btn-flex">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                            <polyline points="7 10 12 15 17 10"></polyline>
+                            <line x1="12" y1="15" x2="12" y2="3"></line>
+                        </svg>
+                        <span id="download-btn-text">Download Video</span>
+                    </a>
+                    <button id="analytics-btn" class="btn btn-secondary btn-flex">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="18" y1="20" x2="18" y2="10"></line>
+                            <line x1="12" y1="20" x2="12" y2="4"></line>
+                            <line x1="6" y1="20" x2="6" y2="14"></line>
+                        </svg>
+                        View Analytics
+                    </button>
+                    <button id="new-video-btn" class="btn btn-secondary btn-flex">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="23 4 23 10 17 10"></polyline>
+                            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                        </svg>
+                        New Video
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Step 5: Analytics Dashboard -->
+        <section id="analytics-section" class="section hidden">
+            <div class="section-header">
+                <h2>Algorithm Analytics</h2>
+                <p>Deep dive into how the summarization algorithm analyzed your video</p>
+            </div>
+
+            <!-- Smart Insights (local analysis - always available) -->
+            <div class="card hidden" id="ai-insights-card">
+                <h3>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline;vertical-align:middle;margin-right:8px;">
+                        <path d="M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7z"></path>
+                        <line x1="9" y1="21" x2="15" y2="21"></line>
+                    </svg>
+                    Smart Insights
+                </h3>
+                <p class="card-description">Analyzes your video's characteristics and recommends the best summarization approach</p>
+                <div id="ai-insights-content" class="ai-insights-content">
+                    <button id="generate-insights-btn" class="btn btn-secondary">Generate Insights</button>
+                </div>
+            </div>
+
+            <!-- Motion Heatmap -->
+            <div class="card">
+                <h3>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline;vertical-align:middle;margin-right:8px;">
+                        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                    </svg>
+                    Motion Heatmap
+                </h3>
+                <p class="card-description">Aggregated motion intensity across all frames - brighter areas indicate more movement detected</p>
+                <div id="heatmap-container" class="heatmap-container">
+                    <div class="loading-placeholder">Loading heatmap...</div>
+                </div>
+            </div>
+
+            <!-- Frame Importance Chart -->
+            <div class="card">
+                <h3>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline;vertical-align:middle;margin-right:8px;">
+                        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+                    </svg>
+                    Frame Importance Scores
+                </h3>
+                <p class="card-description">Each frame's importance score over time - higher peaks indicate key moments selected for the summary</p>
+                <div class="chart-legend">
+                    <span class="legend-item"><span class="legend-color motion"></span> Motion</span>
+                    <span class="legend-item"><span class="legend-color color"></span> Color Diversity</span>
+                    <span class="legend-item"><span class="legend-color event"></span> Event</span>
+                    <span class="legend-item"><span class="legend-color combined"></span> Combined</span>
+                </div>
+                <div id="chart-container" class="chart-container">
+                    <canvas id="scores-chart"></canvas>
+                </div>
+            </div>
+
+            <!-- Summary Statistics -->
+            <div class="card">
+                <h3>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline;vertical-align:middle;margin-right:8px;">
+                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                        <line x1="3" y1="9" x2="21" y2="9"></line>
+                        <line x1="9" y1="21" x2="9" y2="9"></line>
+                    </svg>
+                    Algorithm Statistics
+                </h3>
+                <div class="analytics-stats-grid" id="analytics-stats">
+                    <!-- Stats will be populated dynamically -->
+                </div>
+            </div>
+
+            <!-- Technique Comparison -->
+            <div class="card">
+                <h3>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline;vertical-align:middle;margin-right:8px;">
+                        <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+                        <polyline points="2 17 12 22 22 17"></polyline>
+                        <polyline points="2 12 12 17 22 12"></polyline>
+                    </svg>
+                    Technique Comparison
+                </h3>
+                <p class="card-description">See how different algorithms would summarize the same video</p>
+                <div id="comparison-container" class="comparison-container">
+                    <div class="loading-placeholder">Loading comparison...</div>
+                </div>
+            </div>
+
+            <div class="button-row">
+                <button id="back-to-results" class="btn btn-secondary">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="19" y1="12" x2="5" y2="12"></line>
+                        <polyline points="12 19 5 12 12 5"></polyline>
+                    </svg>
+                    Back to Results
+                </button>
+            </div>
+        </section>
+    </main>
+
+    <footer class="footer">
+        <div class="container">
+            <p>Video Insights &bull; Motion, Color, Event & Object Detection Summarization</p>
+        </div>
+    </footer>
+
+    <script src="{% static 'js/app.js' %}"></script>
+</body>
+</html>
